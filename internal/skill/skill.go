@@ -1,11 +1,11 @@
 // Package skill 提供"技能"能力：skills 目录下的 markdown 文件，
 // 每个文件是一份可复用任务说明（何时用 + 具体步骤）。
-// 启动时把技能清单注入系统提示，模型需要时用 load_skill 工具加载完整说明。
+// 技能是 agent 的知识/记忆机制，不属于"执行工具"（不走 tool 体系）：
+// 清单注入系统提示，模型通过 load_skill / install_skill 与 Manager 交互，
+// 由 agent 直接分派给 Manager。
 package skill
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,8 +13,6 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"webagent/internal/tool"
 )
 
 // Skill 是一份可复用的任务说明。
@@ -104,51 +102,4 @@ func Catalog(skills []Skill) string {
 	}
 	sb.WriteString("\n需要某项技能的详细步骤时，调用 load_skill 工具加载它的完整说明。\n")
 	return sb.String()
-}
-
-// LoadTool 是 load_skill 工具：让模型按名加载某个技能的完整说明。
-type LoadTool struct {
-	skills map[string]Skill
-}
-
-func NewLoadTool(skills []Skill) *LoadTool {
-	m := make(map[string]Skill, len(skills))
-	for _, s := range skills {
-		m[s.Name] = s
-	}
-	return &LoadTool{skills: m}
-}
-
-func (t *LoadTool) Spec() tool.Spec {
-	return tool.Spec{
-		Name: "load_skill",
-		Description: "加载一个技能的完整说明。先在系统提示的\"可用技能\"清单里找到技能名，再调用它获取详细步骤。",
-		Parameters: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"name": {"type": "string", "description": "技能名，见系统提示里的可用技能清单"}
-			},
-			"required": ["name"],
-			"additionalProperties": false
-		}`),
-	}
-}
-
-type loadSkillArgs struct {
-	Name string `json:"name"`
-}
-
-func (t *LoadTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	var a loadSkillArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return "", fmt.Errorf("load_skill 参数解析失败: %w", err)
-	}
-	s, ok := t.skills[a.Name]
-	if !ok {
-		return "", fmt.Errorf("技能 %q 不存在", a.Name)
-	}
-	return s.Content, nil
 }

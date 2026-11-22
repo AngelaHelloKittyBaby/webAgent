@@ -58,6 +58,10 @@ type Agent struct {
 	// Root 是项目根目录（用于判断 write_file 是否越界）。空值视为 "."。
 	Root string
 
+	// Skills 是技能机制（load_skill/install_skill）的实现者。
+	// 技能不属于"执行工具"，agent 直接分派给它，不走 tool 体系。
+	Skills SkillProvider
+
 	// Confirm 是工具调用前的安全审批：危险命令/越界写文件先问用户。
 	// 返回 nil 放行，非 nil 表示用户拒绝。为 nil 时所有工具直接放行（不审批）。
 	Confirm func(ctx context.Context, tc llm.ToolCall) error
@@ -67,6 +71,13 @@ type Agent struct {
 
 	// Emit 为 nil 时静默。TUI 来了以后把它接到 channel 上。
 	Emit func(Event)
+}
+
+// SkillProvider 是技能机制的抽象：提供对模型可见的 spec，并处理技能调用。
+// skill.Manager 实现它。
+type SkillProvider interface {
+	Specs() []llm.ToolSpec
+	Handle(ctx context.Context, tc llm.ToolCall) (string, error)
 }
 
 // requireConfirm 决定一次工具调用是否需要用户审批。
@@ -112,9 +123,9 @@ func writeInRoot(root, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// toolSpecs 把内部工具清单翻译成模型层认识的 ToolSpec。
+// toolSpecs 把内部工具清单 + 技能 spec 翻译成模型层认识的 ToolSpec。
 func (a *Agent) toolSpecs() []llm.ToolSpec {
-	specs := make([]llm.ToolSpec, 0, len(a.Tools))
+	specs := make([]llm.ToolSpec, 0, len(a.Tools)+4)
 	for _, t := range a.Tools {
 		s := t.Spec()
 		specs = append(specs, llm.ToolSpec{
@@ -123,12 +134,23 @@ func (a *Agent) toolSpecs() []llm.ToolSpec {
 			Parameters:  s.Parameters,
 		})
 	}
+	if a.Skills != nil {
+		specs = append(specs, a.Skills.Specs()...)
+	}
 	return specs
 }
 
 // executeTool 执行一次工具调用，返回要给模型看的 tool 消息内容。
 // 约定：工具执行失败不致命，把错误文本回给模型，让模型转告用户或换思路。
 func (a *Agent) executeTool(ctx context.Context, tc llm.ToolCall) string {
+	// 技能调用（load_skill/install_skill）由 Skills 处理，不走工具体系
+	if a.Skills != nil && (tc.Name == "load_skill" || tc.Name == "install_skill") {
+		out, err := a.Skills.Handle(ctx, tc)
+		if err != nil {
+			return fmt.Sprintf("错误：%v", err)
+		}
+		return out
+	}
 	for _, t := range a.Tools {
 		if t.Spec().Name == tc.Name {
 			out, err := t.Execute(ctx, tc.Arguments)

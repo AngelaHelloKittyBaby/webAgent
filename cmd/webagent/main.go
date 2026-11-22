@@ -68,12 +68,12 @@ func run() error {
 		systemPrompt = "以下是之前会话的摘要，供你回忆上下文：\n\n" + summary + "\n\n---\n\n" + systemPrompt
 	}
 
-	// 加载技能，把清单注入系统提示（技能目录会变，所以每轮重新组装）
-	skills, err := skill.Load(*skillsDir)
-	if err != nil {
+	// 技能机制（agent 内建，不走工具体系）：加载清单注入系统提示
+	skillMgr := skill.NewManager(*skillsDir)
+	if err := skillMgr.Load(); err != nil {
 		logger.Warn("加载技能失败", "dir", *skillsDir, "err", err)
 	}
-	if catalog := skill.Catalog(skills); catalog != "" {
+	if catalog := skillMgr.Catalog(); catalog != "" {
 		systemPrompt = systemPrompt + "\n\n" + catalog
 	}
 
@@ -89,13 +89,8 @@ func run() error {
 	cancel()
 
 	// 全部执行类工具走 MCP server（config.yaml 的 mcp.servers）。
-	// 本地只保留 load_skill：它是技能记忆机制，不是执行能力。
-	tools := []tool.Tool{}
-	if len(skills) > 0 {
-		tools = append(tools, skill.NewLoadTool(skills))
-	}
-	tools = append(tools, skill.NewInstallTool(*skillsDir))
-	tools = append(tools, mcpTools...)
+	// 技能（load_skill/install_skill）不走工具体系，由 agent 内建分派给 skillMgr。
+	tools := append([]tool.Tool{}, mcpTools...)
 
 	ag := &agent.Agent{
 		Model:       client,
@@ -105,6 +100,7 @@ func run() error {
 		Temperature: cfg.Model.Temperature,
 		MaxTokens:   cfg.Model.MaxTokens,
 		Root:        ".",
+		Skills:      skillMgr,
 		Tools:       tools,
 	}
 

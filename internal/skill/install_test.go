@@ -10,9 +10,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"webagent/internal/llm"
 )
 
-func TestInstallTool(t *testing.T) {
+// newTestManager 构造 Manager 并把 HTTP 客户端指到 srv。
+func newTestManager(t *testing.T, dir string, srv *httptest.Server) *Manager {
+	t.Helper()
+	m := NewManager(dir)
+	m.client = srv.Client()
+	return m
+}
+
+func TestInstallSkill(t *testing.T) {
 	dir := t.TempDir()
 	const good = "---\nname: deploy\ndescription: 部署\n---\n\n# 步骤\n1. build"
 
@@ -22,10 +32,12 @@ func TestInstallTool(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	it := NewInstallTool(dir)
-	it.client = srv.Client()
+	m := newTestManager(t, dir, srv)
 
-	out, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/skills/deploy.md"}`))
+	out, err := m.Handle(context.Background(), llm.ToolCall{
+		Name:      "install_skill",
+		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/skills/deploy.md"}`),
+	})
 	if err != nil {
 		t.Fatalf("不应出错: %v", err)
 	}
@@ -41,7 +53,7 @@ func TestInstallTool(t *testing.T) {
 	}
 }
 
-func TestInstallToolSanitizesName(t *testing.T) {
+func TestInstallSkillSanitizesName(t *testing.T) {
 	// 恶意文件名：../、反斜杠、冒号都要被净化，防路径穿越
 	if got := sanitizeSkillName("../evil"); got != "evil" {
 		t.Fatalf("期望 evil，实际 %q", got)
@@ -54,49 +66,55 @@ func TestInstallToolSanitizesName(t *testing.T) {
 	}
 }
 
-func TestInstallToolHTTPError(t *testing.T) {
+func TestInstallSkillHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, "not found")
 	}))
 	defer srv.Close()
 
-	it := NewInstallTool(t.TempDir())
-	it.client = srv.Client()
+	m := newTestManager(t, t.TempDir(), srv)
 
-	_, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/x.md"}`))
+	_, err := m.Handle(context.Background(), llm.ToolCall{
+		Name:      "install_skill",
+		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/x.md"}`),
+	})
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Fatalf("应报 HTTP 错误，实际: %v", err)
 	}
 }
 
-func TestInstallToolTooBig(t *testing.T) {
+func TestInstallSkillTooBig(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, strings.Repeat("a", 100))
 	}))
 	defer srv.Close()
 
-	it := NewInstallTool(t.TempDir())
-	it.client = srv.Client()
-	it.maxBytes = 10
+	m := newTestManager(t, t.TempDir(), srv)
+	m.maxBytes = 10
 
-	if _, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/x.md"}`)); err == nil {
+	if _, err := m.Handle(context.Background(), llm.ToolCall{
+		Name:      "install_skill",
+		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/x.md"}`),
+	}); err == nil {
 		t.Fatal("超限应报错")
 	}
 }
 
-func TestInstallToolNameParam(t *testing.T) {
+func TestInstallSkillNameParam(t *testing.T) {
 	dir := t.TempDir()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "---\nname: x\ndescription: x\n---\n\nbody")
 	}))
 	defer srv.Close()
 
-	it := NewInstallTool(dir)
-	it.client = srv.Client()
+	m := newTestManager(t, dir, srv)
 
 	// URL 路径是 "/"，推断不出名字，但 name 参数给了
-	if _, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/","name":"my-skill"}`)); err != nil {
+	if _, err := m.Handle(context.Background(), llm.ToolCall{
+		Name:      "install_skill",
+		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/","name":"my-skill"}`),
+	}); err != nil {
 		t.Fatalf("不应出错: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "my-skill.md")); err != nil {
