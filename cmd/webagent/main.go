@@ -94,6 +94,7 @@ func run() error {
 	if len(skills) > 0 {
 		tools = append(tools, skill.NewLoadTool(skills))
 	}
+	tools = append(tools, skill.NewInstallTool(*skillsDir))
 	tools = append(tools, mcpTools...)
 
 	ag := &agent.Agent{
