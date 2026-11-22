@@ -1,0 +1,22 @@
+model:
+  base_url: "https://tokenrhythm.studio/v1"   
+  model: "deepseek-v4.1-flash-1017"
+  # api_key: 千万别写这里，用环境变量 WEBAGENT_API_KEY
+  temperature: 0.3
+  max_tokens: 4096
+  timeout_seconds: 120
+
+agent:
+  max_steps: 20
+  max_history: 20   # 滚动摘要：对话超过这条数就压缩旧消息，0 关闭
+
+# 可选：连接外部 MCP server，自动把它们的工具接入 agent
+# 内置 demo：用官方 mcp-go SDK 写的本地 server（读文件/列目录）。
+#   启动前先构建：go build -o mcpserver.exe ./cmd/mcpserver
+mcp:
+  servers:
+    - name: webagent-tools
+      command: ./mcpserver.exe
+      args: []
+
+log_level: "info"

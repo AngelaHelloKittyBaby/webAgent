@@ -1,0 +1,25 @@
+# 构建产物
+mcpserver.exe
+webagent.exe
+*.exe
+
+# 会话数据（对话历史 + 摘要）
+data/
+
+# 默认文件输出目录
+output/
+
+# 日志
+*.log
+
+# Go 测试二进制
+*.test
+
+# 本地工具链缓存（用重定向缓存时）
+.gocache/
+.gotmp/
+.gopath/
+
+# IDE
+.idea/
+.vscode/
