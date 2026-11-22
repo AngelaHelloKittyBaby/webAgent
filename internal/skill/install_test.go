@@ -10,16 +10,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"webagent/internal/llm"
 )
 
-// newTestManager 构造 Manager 并把 HTTP 客户端指到 srv。
-func newTestManager(t *testing.T, dir string, srv *httptest.Server) *Manager {
+// newTestInstallSkill 构造 Manager 并把 HTTP 客户端指到 srv，返回 install_skill 工具。
+func newTestInstallSkill(t *testing.T, dir string, srv *httptest.Server) *InstallSkill {
 	t.Helper()
 	m := NewManager(dir)
 	m.client = srv.Client()
-	return m
+	return NewInstallSkill(m)
 }
 
 func TestInstallSkill(t *testing.T) {
@@ -32,12 +30,9 @@ func TestInstallSkill(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := newTestManager(t, dir, srv)
+	it := newTestInstallSkill(t, dir, srv)
 
-	out, err := m.Handle(context.Background(), llm.ToolCall{
-		Name:      "install_skill",
-		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/skills/deploy.md"}`),
-	})
+	out, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/skills/deploy.md"}`))
 	if err != nil {
 		t.Fatalf("不应出错: %v", err)
 	}
@@ -73,12 +68,9 @@ func TestInstallSkillHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := newTestManager(t, t.TempDir(), srv)
+	it := newTestInstallSkill(t, t.TempDir(), srv)
 
-	_, err := m.Handle(context.Background(), llm.ToolCall{
-		Name:      "install_skill",
-		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/x.md"}`),
-	})
+	_, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/x.md"}`))
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Fatalf("应报 HTTP 错误，实际: %v", err)
 	}
@@ -90,13 +82,10 @@ func TestInstallSkillTooBig(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := newTestManager(t, t.TempDir(), srv)
-	m.maxBytes = 10
+	it := newTestInstallSkill(t, t.TempDir(), srv)
+	it.mgr.maxBytes = 10
 
-	if _, err := m.Handle(context.Background(), llm.ToolCall{
-		Name:      "install_skill",
-		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/x.md"}`),
-	}); err == nil {
+	if _, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/x.md"}`)); err == nil {
 		t.Fatal("超限应报错")
 	}
 }
@@ -108,13 +97,10 @@ func TestInstallSkillNameParam(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := newTestManager(t, dir, srv)
+	it := newTestInstallSkill(t, dir, srv)
 
 	// URL 路径是 "/"，推断不出名字，但 name 参数给了
-	if _, err := m.Handle(context.Background(), llm.ToolCall{
-		Name:      "install_skill",
-		Arguments: json.RawMessage(`{"url":"` + srv.URL + `/","name":"my-skill"}`),
-	}); err != nil {
+	if _, err := it.Execute(context.Background(), json.RawMessage(`{"url":"`+srv.URL+`/","name":"my-skill"}`)); err != nil {
 		t.Fatalf("不应出错: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "my-skill.md")); err != nil {

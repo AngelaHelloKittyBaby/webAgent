@@ -88,9 +88,9 @@ func run() error {
 	mcpTools := loadMCPTools(mcpCtx, cfg.MCP.Servers, logger)
 	cancel()
 
-	// 全部执行类工具走 MCP server（config.yaml 的 mcp.servers）。
-	// 技能（load_skill/install_skill）不走工具体系，由 agent 内建分派给 skillMgr。
-	tools := append([]tool.Tool{}, mcpTools...)
+	// 工具清单：技能接入（load_skill/install_skill）+ MCP 执行工具，统一走工具体系。
+	tools := []tool.Tool{skill.NewLoadSkill(skillMgr), skill.NewInstallSkill(skillMgr)}
+	tools = append(tools, mcpTools...)
 
 	ag := &agent.Agent{
 		Model:       client,
@@ -100,7 +100,6 @@ func run() error {
 		Temperature: cfg.Model.Temperature,
 		MaxTokens:   cfg.Model.MaxTokens,
 		Root:        ".",
-		Skills:      skillMgr,
 		Tools:       tools,
 	}
 

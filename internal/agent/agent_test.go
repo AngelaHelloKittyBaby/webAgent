@@ -184,64 +184,6 @@ func TestConfirmWriteFileOutsideRoot(t *testing.T) {
 	}
 }
 
-// fakeSkills 是 SkillProvider 的测试替身。
-type fakeSkills struct {
-	handled []string
-}
-
-func (f *fakeSkills) Specs() []llm.ToolSpec {
-	return []llm.ToolSpec{{Name: "load_skill", Description: "load", Parameters: json.RawMessage(`{"type":"object"}`)}}
-}
-
-func (f *fakeSkills) Handle(ctx context.Context, tc llm.ToolCall) (string, error) {
-	f.handled = append(f.handled, tc.Name)
-	return "skill-out:" + tc.Name, nil
-}
-
-// TestRunSkillDispatch：load_skill/install_skill 由 Skills 处理，不走工具体系。
-func TestRunSkillDispatch(t *testing.T) {
-	c := &fakeClient{steps: []fakeStep{
-		{resp: toolCallResp("c1", "load_skill", `{"name":"go-build"}`)},
-		{resp: stopResp("完成")},
-	}}
-	skills := &fakeSkills{}
-	ag := &Agent{Model: c, Skills: skills}
-
-	conv, err := ag.Run(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("不应出错: %v", err)
-	}
-	if len(conv) < 2 || !strings.Contains(conv[1].Content, "skill-out:load_skill") {
-		t.Fatalf("技能结果不对: %+v", conv)
-	}
-	if len(skills.handled) != 1 || skills.handled[0] != "load_skill" {
-		t.Fatalf("Skills 应处理 load_skill: %v", skills.handled)
-	}
-}
-
-// TestRunPassesSkillSpecs：技能 spec 附加在模型可见的工具清单里。
-func TestRunPassesSkillSpecs(t *testing.T) {
-	c := &fakeClient{steps: []fakeStep{{resp: stopResp("hi")}}}
-	ag := &Agent{Model: c, Skills: &fakeSkills{}}
-
-	if _, err := ag.Run(context.Background(), nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(c.got) != 1 {
-		t.Fatalf("应有一次请求: %d", len(c.got))
-	}
-	found := false
-	for _, spec := range c.got[0].Tools {
-		if spec.Name == "load_skill" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("工具清单里应含 load_skill: %+v", c.got[0].Tools)
-	}
-}
-
 func containsKind(kinds []EventKind, k EventKind) bool {
 	for _, x := range kinds {
 		if x == k {

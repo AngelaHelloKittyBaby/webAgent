@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"webagent/internal/llm"
 )
 
 const sampleSkill = `---
@@ -53,17 +51,16 @@ func TestLoadMissingDir(t *testing.T) {
 	}
 }
 
-func TestManagerLoadSkill(t *testing.T) {
+func TestLoadSkillTool(t *testing.T) {
 	m := NewManager("")
 	m.skills = []Skill{{Name: "go-build", Description: "x", Content: "内容"}}
+	lt := NewLoadSkill(m)
 
-	// Specs 对模型可见
-	specs := m.Specs()
-	if len(specs) != 2 || specs[0].Name != "load_skill" || specs[1].Name != "install_skill" {
-		t.Fatalf("specs 不对: %+v", specs)
+	if lt.Spec().Name != "load_skill" {
+		t.Fatalf("工具名不对: %q", lt.Spec().Name)
 	}
 
-	out, err := m.Handle(context.Background(), llm.ToolCall{Name: "load_skill", Arguments: json.RawMessage(`{"name":"go-build"}`)})
+	out, err := lt.Execute(context.Background(), json.RawMessage(`{"name":"go-build"}`))
 	if err != nil {
 		t.Fatalf("不应出错: %v", err)
 	}
@@ -71,13 +68,8 @@ func TestManagerLoadSkill(t *testing.T) {
 		t.Fatalf("内容不对: %q", out)
 	}
 
-	if _, err := m.Handle(context.Background(), llm.ToolCall{Name: "load_skill", Arguments: json.RawMessage(`{"name":"nope"}`)}); err == nil {
+	if _, err := lt.Execute(context.Background(), json.RawMessage(`{"name":"nope"}`)); err == nil {
 		t.Fatal("不存在的技能应当报错")
-	}
-
-	// 其它名字：未知技能操作（agent 会落到常规工具查找）
-	if _, err := m.Handle(context.Background(), llm.ToolCall{Name: "exec", Arguments: json.RawMessage(`{}`)}); err == nil {
-		t.Fatal("未知技能操作应报错")
 	}
 }
 
