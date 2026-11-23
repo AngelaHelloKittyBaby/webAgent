@@ -11,8 +11,9 @@ import (
 	"time"
 )
 
-// execTimeout 单条命令的超时上限。
-const execTimeout = 30 * time.Second
+// execTimeout 单条命令的超时上限。常驻命令（开发服务器）不会自己退出，
+// 会被这个超时杀掉；设短一点，避免 agent 整轮卡在这里“转圈不动”。
+const execTimeout = 20 * time.Second
 
 // Exec 在项目根目录执行一条 shell 命令，返回退出码和输出。
 // 带三层防护：固定工作目录、单条命令超时、输出截断。
@@ -31,11 +32,11 @@ func NewExec(dir string) *Exec {
 func (t *Exec) Spec() Spec {
 	return Spec{
 		Name:        "exec",
-		Description: "在项目根目录执行一条 shell 命令，返回退出码和输出，30 秒超时、输出过长会截断。编译（go build）、跑测试（go test）、看 git 都用它。",
+		Description: "在项目根目录执行一条 shell 命令，返回退出码和输出，20 秒超时、输出过长会截断。只能跑一次性命令：编译（go build ./...）、测试（go test ./...）、看 git。禁止运行常驻命令——go run 主程序、pnpm dev、npm run dev、vite 等开发服务器不会退出，会一直阻塞直到超时；验证编译请用 go build，验证测试请用 go test。",
 		Parameters: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"command": {"type": "string", "description": "要执行的命令，如 go build ./...、go test ./...、git status"}
+				"command": {"type": "string", "description": "要执行的一次性命令，如 go build ./...、go test ./...、git status。不要传 go run main.go、pnpm dev 等会一直运行的命令。"}
 			},
 			"required": ["command"],
 			"additionalProperties": false
@@ -77,7 +78,10 @@ func (t *Exec) Execute(ctx context.Context, args json.RawMessage) (string, error
 		// 1) 上层取消或我们的超时：超时返回已捕获的部分输出
 		if ctx2.Err() != nil {
 			if ctx2.Err() == context.DeadlineExceeded {
-				return fmt.Sprintf("（命令超时，已终止）\n%s", output), nil
+				// 超时几乎都是常驻命令（go run / pnpm dev / npm run dev 等开发服务器）：
+				// 它们不会自己退出。给模型一个明确的、可操作的反馈，让它换思路，
+				// 而不是傻傻重试同一条命令又一轮卡住。
+				return fmt.Sprintf("（命令超过 %v 未退出，已终止。这通常是开发服务器等常驻命令（go run、pnpm dev、npm run dev、vite）——exec 只能跑一次性命令，不要用它启动服务器，也不要重试同一条命令。验证编译请改用 `go build ./...`，验证测试请改用 `go test ./...`。）\n%s", t.timeout, output), nil
 			}
 			return "", ctx2.Err()
 		}

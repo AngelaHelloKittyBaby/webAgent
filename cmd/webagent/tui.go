@@ -327,14 +327,36 @@ func (m *tuiModel) layout() {
 
 func (m *tuiModel) updateViewport() {
 	content := strings.Join(m.lines, "\n")
-	if content == m.lastContent {
+	// 按终端宽度软换行：viewport 本身只做纵向滚动、不会折行，
+	// 超宽内容会被横向截断（必须拉宽屏幕才看得全）。这里先 wrap 成多行再喂给它。
+	rendered := wrapWidth(content, m.viewport.Width)
+	if rendered == m.lastContent {
 		return // 内容没变：不动 viewport，保留用户的滚动位置
 	}
-	m.lastContent = content
-	m.viewport.SetContent(content)
+	m.lastContent = rendered
+	m.viewport.SetContent(rendered)
 	if m.followBottom {
 		m.viewport.GotoBottom()
 	}
+}
+
+// wrapWidth 把文本按显示宽度 w 软换行。
+// 用 lipgloss 的 Width 样式：它会按显示宽度（含中文/emoji 的双宽）折行，
+// 比按字节切更准，也不会从字符中间断开。w<=0 时原样返回。
+// 折行后每行会被右填充到 w 宽，这里去掉行尾空格保持干净。
+func wrapWidth(content string, w int) string {
+	if w <= 0 {
+		return content
+	}
+	rendered := lipgloss.NewStyle().Width(w).Render(content)
+	var b strings.Builder
+	for i, line := range strings.Split(rendered, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(strings.TrimRight(line, " "))
+	}
+	return b.String()
 }
 
 // afterScroll 在用户滚动后刷新"是否自动跟随"状态：
