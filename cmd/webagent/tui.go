@@ -66,7 +66,7 @@ func runTUI(cfg config.Config, client llm.Client, ag *agent.Agent, conv []llm.Me
 		m.eventCh <- e
 	}
 	ag.Confirm = makeTuiConfirm(m) // 危险工具（exec/write_file）先问用户
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
@@ -94,7 +94,17 @@ func newTUIModel(ag *agent.Agent, client llm.Client, conv []llm.Message, dataDir
 		confirmResult: make(chan bool, 1),
 	}
 	m.renderHistory(conv)
+	m.greet()
 	return m
+}
+
+// greet 在启动时显示一行 AI 自我介绍（只渲染，不进入对话历史）。
+func (m *tuiModel) greet() {
+	m.lines = append(m.lines,
+		"助手> 你好！我是 webagent，运行在你终端里的 AI 开发助手。",
+		"  我可以读取/修改项目文件、执行命令、审查代码，还能按需加载技能（load_skill）。",
+		"  在下方输入框输入内容回车发送；PgUp/PgDown 或鼠标滚轮滚动对话。",
+	)
 }
 
 // pendingLine 是待审批时显示的提示行。
@@ -149,6 +159,11 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 		return m, waitMsg(m.eventCh, m.doneCh, m.confirmCh)
 
+	case tea.MouseMsg:
+		// 鼠标滚轮滚动对话区
+		m.viewport, _ = m.viewport.Update(msg)
+		return m, nil
+
 	case tea.KeyMsg:
 		return m, m.handleKey(msg)
 	}
@@ -178,6 +193,11 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) tea.Cmd {
 				return m.resolveConfirm(false)
 			}
 		}
+	case tea.KeyPgUp, tea.KeyPgDown:
+		// 翻页滚动对话区（运行中也能翻历史）
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return cmd
 	}
 	if m.running || m.pending != nil {
 		return nil // 运行中或待审批时忽略其它输入
