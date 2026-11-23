@@ -107,7 +107,7 @@ func (m *tuiModel) greet() {
 	m.lines = append(m.lines,
 		"助手> 你好！我是 webagent，运行在你终端里的 AI 开发助手。",
 		"  我可以读取/修改项目文件、执行命令、审查代码，还能按需加载技能（load_skill）。",
-		"  在下方输入框输入内容回车发送；PgUp/PgDown 或鼠标滚轮滚动对话。",
+		"  在下方输入框输入内容回车发送；PgUp/PgDown 滚动对话。",
 	)
 }
 
