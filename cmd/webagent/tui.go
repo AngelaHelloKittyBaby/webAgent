@@ -54,6 +54,9 @@ type tuiModel struct {
 	confirmResult chan bool          // 用户按键结果送回 agent
 	pending      *pendingConfirm     // 正在等待审批的调用
 
+	lastContent  string // 上次渲染的内容（内容没变就不重设 viewport）
+	followBottom bool   // 是否自动跟随最新内容（用户滚动过则为 false）
+
 	width  int
 	height int
 }
@@ -92,6 +95,7 @@ func newTUIModel(ag *agent.Agent, client llm.Client, conv []llm.Message, dataDir
 		doneCh:   make(chan runResult, 1),
 		confirmCh:    make(chan confirmRequest, 1),
 		confirmResult: make(chan bool, 1),
+		followBottom:  true,
 	}
 	m.renderHistory(conv)
 	m.greet()
@@ -162,6 +166,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		// 鼠标滚轮滚动对话区
 		m.viewport, _ = m.viewport.Update(msg)
+		m.afterScroll()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -197,6 +202,7 @@ func (m *tuiModel) handleKey(msg tea.KeyMsg) tea.Cmd {
 		// 翻页滚动对话区（运行中也能翻历史）
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		m.afterScroll()
 		return cmd
 	}
 	if m.running || m.pending != nil {
@@ -321,8 +327,21 @@ func (m *tuiModel) layout() {
 }
 
 func (m *tuiModel) updateViewport() {
-	m.viewport.SetContent(strings.Join(m.lines, "\n"))
-	m.viewport.GotoBottom()
+	content := strings.Join(m.lines, "\n")
+	if content == m.lastContent {
+		return // 内容没变：不动 viewport，保留用户的滚动位置
+	}
+	m.lastContent = content
+	m.viewport.SetContent(content)
+	if m.followBottom {
+		m.viewport.GotoBottom()
+	}
+}
+
+// afterScroll 在用户滚动后刷新"是否自动跟随"状态：
+// 滚到最底才恢复跟随最新，在中间/顶部则停在原地（不再被新内容拉走）。
+func (m *tuiModel) afterScroll() {
+	m.followBottom = m.viewport.AtBottom()
 }
 
 func (m *tuiModel) View() string {
